@@ -42,6 +42,29 @@ app.use(limiter);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Ensure DB is initialized (supports both local server and Vercel serverless cold starts)
+let dbInitPromise = null;
+function ensureDB() {
+  if (!dbInitPromise) {
+    dbInitPromise = initDB().catch((err) => {
+      dbInitPromise = null;
+      throw err;
+    });
+  }
+  return dbInitPromise;
+}
+
+app.use('/api', async (req, res, next) => {
+  if (req.path === '/health') return next();
+  try {
+    await ensureDB();
+    next();
+  } catch (error) {
+    console.error('[DB INIT ERROR]:', error.message);
+    res.status(500).json({ error: 'Database connection failed. Check DB environment variables.' });
+  }
+});
+
 // Health Check
 app.get('/api/health', (req, res) => {
   res.json({
@@ -70,10 +93,10 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start Server
+// Start Server when run directly (local development)
 async function startServer() {
   try {
-    await initDB();
+    await ensureDB();
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`=======================================================`);
       console.log(`🚀 GradPath API is running on http://localhost:${PORT}`);
@@ -88,4 +111,8 @@ async function startServer() {
   }
 }
 
-startServer();
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = app;
