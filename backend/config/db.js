@@ -64,10 +64,24 @@ async function createTables() {
         level_term VARCHAR(50) DEFAULT 'Level 2, Term 1',
         target_cgpa DECIMAL(3,2) DEFAULT 3.80,
         completed_credits DECIMAL(5,2) DEFAULT 0.00,
+        baseline_cgpa DECIMAL(3,2) DEFAULT NULL,
+        baseline_credits DECIMAL(5,2) DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    // Ensure baseline columns exist on existing databases
+    for (const colDef of [
+      'ALTER TABLE users ADD COLUMN baseline_cgpa DECIMAL(3,2) DEFAULT NULL',
+      'ALTER TABLE users ADD COLUMN baseline_credits DECIMAL(5,2) DEFAULT NULL'
+    ]) {
+      try {
+        await connection.query(colDef);
+      } catch (err) {
+        if (err.code !== 'ER_DUP_FIELDNAME') throw err;
+      }
+    }
 
     // Semesters table
     await connection.query(`

@@ -132,6 +132,13 @@ export const api = {
     return request('/engine/cgpa');
   },
 
+  async updateBaselineCgpa(data) {
+    return request('/engine/baseline-cgpa', {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
   async predictTarget(targetData) {
     return request('/engine/target-predict', {
       method: 'POST',

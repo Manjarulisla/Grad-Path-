@@ -40,13 +40,32 @@ router.post('/', authenticateToken, async (req, res) => {
     }
 
     let finalGrade = grade || null;
-    let finalGP = grade_point !== undefined && grade_point !== null ? parseFloat(grade_point) : null;
+    let finalGP = grade_point !== undefined && grade_point !== null && grade_point !== '' && !isNaN(parseFloat(grade_point))
+      ? parseFloat(grade_point)
+      : null;
 
-    if (marks !== undefined && marks !== null && marks !== '') {
-      const calc = calculateGrade(marks);
+    const parsedMarks = (marks !== undefined && marks !== null && marks !== '' && !isNaN(parseFloat(marks)))
+      ? parseFloat(marks)
+      : null;
+
+    if (parsedMarks !== null) {
+      const calc = calculateGrade(parsedMarks);
       finalGrade = calc.grade;
       finalGP = calc.grade_point;
     }
+
+    const parsedCredits = (credits !== undefined && credits !== null && credits !== '' && !isNaN(parseFloat(credits)))
+      ? parseFloat(credits)
+      : 3.0;
+    const parsedHeld = (attendance_held !== undefined && attendance_held !== null && attendance_held !== '' && !isNaN(parseInt(attendance_held, 10)))
+      ? parseInt(attendance_held, 10)
+      : 30;
+    const parsedAttended = (attendance_attended !== undefined && attendance_attended !== null && attendance_attended !== '' && !isNaN(parseInt(attendance_attended, 10)))
+      ? parseInt(attendance_attended, 10)
+      : 26;
+    const parsedDifficulty = (difficulty !== undefined && difficulty !== null && difficulty !== '' && !isNaN(parseInt(difficulty, 10)))
+      ? parseInt(difficulty, 10)
+      : 3;
 
     const [result] = await pool.query(`
       INSERT INTO courses (
@@ -58,14 +77,14 @@ router.post('/', authenticateToken, async (req, res) => {
       req.user.id,
       code.trim().toUpperCase(),
       title.trim(),
-      credits ? parseFloat(credits) : 3.0,
-      marks !== undefined && marks !== '' ? parseFloat(marks) : null,
+      parsedCredits,
+      parsedMarks,
       finalGrade,
       finalGP,
       is_retake ? 1 : 0,
-      attendance_held ? parseInt(attendance_held, 10) : 30,
-      attendance_attended ? parseInt(attendance_attended, 10) : 26,
-      difficulty ? parseInt(difficulty, 10) : 3
+      parsedHeld,
+      parsedAttended,
+      parsedDifficulty
     ]);
 
     const [newCourse] = await pool.query('SELECT * FROM courses WHERE id = ?', [result.insertId]);
@@ -88,14 +107,33 @@ router.put('/:id', authenticateToken, async (req, res) => {
 
     const pool = getPool();
 
-    let finalGrade = grade;
-    let finalGP = grade_point;
+    let finalGrade = grade || null;
+    let finalGP = (grade_point !== undefined && grade_point !== null && grade_point !== '' && !isNaN(parseFloat(grade_point)))
+      ? parseFloat(grade_point)
+      : null;
 
-    if (marks !== undefined && marks !== null && marks !== '') {
-      const calc = calculateGrade(marks);
+    const parsedMarks = (marks !== undefined && marks !== null && marks !== '' && !isNaN(parseFloat(marks)))
+      ? parseFloat(marks)
+      : null;
+
+    if (parsedMarks !== null) {
+      const calc = calculateGrade(parsedMarks);
       finalGrade = calc.grade;
       finalGP = calc.grade_point;
     }
+
+    const parsedCredits = (credits !== undefined && credits !== null && credits !== '' && !isNaN(parseFloat(credits)))
+      ? parseFloat(credits)
+      : null;
+    const parsedHeld = (attendance_held !== undefined && attendance_held !== null && attendance_held !== '' && !isNaN(parseInt(attendance_held, 10)))
+      ? parseInt(attendance_held, 10)
+      : null;
+    const parsedAttended = (attendance_attended !== undefined && attendance_attended !== null && attendance_attended !== '' && !isNaN(parseInt(attendance_attended, 10)))
+      ? parseInt(attendance_attended, 10)
+      : null;
+    const parsedDifficulty = (difficulty !== undefined && difficulty !== null && difficulty !== '' && !isNaN(parseInt(difficulty, 10)))
+      ? parseInt(difficulty, 10)
+      : null;
 
     await pool.query(`
       UPDATE courses SET
@@ -114,14 +152,14 @@ router.put('/:id', authenticateToken, async (req, res) => {
     `, [
       code ? code.trim().toUpperCase() : null,
       title ? title.trim() : null,
-      credits ? parseFloat(credits) : null,
-      marks !== undefined && marks !== '' ? parseFloat(marks) : null,
+      parsedCredits,
+      parsedMarks,
       finalGrade,
       finalGP,
       is_retake !== undefined ? (is_retake ? 1 : 0) : null,
-      attendance_held !== undefined ? parseInt(attendance_held, 10) : null,
-      attendance_attended !== undefined ? parseInt(attendance_attended, 10) : null,
-      difficulty !== undefined ? parseInt(difficulty, 10) : null,
+      parsedHeld,
+      parsedAttended,
+      parsedDifficulty,
       semester_id || null,
       courseId,
       req.user.id

@@ -3,6 +3,21 @@ const router = express.Router();
 const { getPool, calculateGrade } = require('../config/db');
 const { authenticateToken } = require('../middleware/auth');
 
+async function getBaselineStats(pool, userId) {
+  const [rows] = await pool.query(
+    'SELECT baseline_cgpa, baseline_credits FROM users WHERE id = ?',
+    [userId]
+  );
+  if (rows.length > 0 && rows[0].baseline_cgpa !== null && rows[0].baseline_credits !== null) {
+    const cgpa = parseFloat(rows[0].baseline_cgpa);
+    const credits = parseFloat(rows[0].baseline_credits);
+    if (!isNaN(cgpa) && !isNaN(credits) && credits > 0) {
+      return { points: cgpa * credits, credits };
+    }
+  }
+  return { points: 0, credits: 0 };
+}
+
 // 1. GET /api/engine/cgpa - Current official CGPA & academic standing
 router.get('/cgpa', authenticateToken, async (req, res) => {
   try {
@@ -10,8 +25,17 @@ router.get('/cgpa', authenticateToken, async (req, res) => {
     const userId = req.user.id;
 
     // Fetch user profile
-    const [userRows] = await pool.query('SELECT target_cgpa FROM users WHERE id = ?', [userId]);
+    const [userRows] = await pool.query(
+      'SELECT target_cgpa, baseline_cgpa, baseline_credits FROM users WHERE id = ?',
+      [userId]
+    );
     const targetCgpa = userRows.length > 0 ? parseFloat(userRows[0].target_cgpa) : 3.80;
+    const baselineCgpa = userRows.length > 0 && userRows[0].baseline_cgpa !== null
+      ? parseFloat(userRows[0].baseline_cgpa)
+      : null;
+    const baselineCredits = userRows.length > 0 && userRows[0].baseline_credits !== null
+      ? parseFloat(userRows[0].baseline_credits)
+      : 0;
 
     // Fetch all semesters
     const [semesters] = await pool.query(
@@ -25,10 +49,10 @@ router.get('/cgpa', authenticateToken, async (req, res) => {
       [userId]
     );
 
-    let totalPoints = 0;
-    let completedCredits = 0;
-    let attemptedCredits = 0;
-    let passedCredits = 0;
+    let totalPoints = baselineCgpa !== null && baselineCredits > 0 ? baselineCgpa * baselineCredits : 0;
+    let completedCredits = baselineCgpa !== null && baselineCredits > 0 ? baselineCredits : 0;
+    let attemptedCredits = baselineCgpa !== null && baselineCredits > 0 ? baselineCredits : 0;
+    let passedCredits = baselineCgpa !== null && baselineCredits > 0 && baselineCgpa > 0 ? baselineCredits : 0;
 
     const semesterBreakdown = semesters.map(sem => {
       const semCourses = courses.filter(c => c.semester_id === sem.id);
@@ -84,6 +108,8 @@ router.get('/cgpa', authenticateToken, async (req, res) => {
     return res.json({
       cgpa,
       target_cgpa: targetCgpa,
+      baseline_cgpa: baselineCgpa,
+      baseline_credits: baselineCredits,
       completed_credits: completedCredits,
       attempted_credits: attemptedCredits,
       passed_credits: passedCredits,
@@ -96,6 +122,57 @@ router.get('/cgpa', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('CGPA calculation error:', error);
     return res.status(500).json({ error: 'Server error computing CGPA.' });
+  }
+});
+
+// PUT /api/engine/baseline-cgpa - Upload or update current CGPA & completed credits directly
+router.put('/baseline-cgpa', authenticateToken, async (req, res) => {
+  try {
+    const { baseline_cgpa, baseline_credits, target_cgpa } = req.body;
+    const pool = getPool();
+    const userId = req.user.id;
+
+    let parsedCgpa = null;
+    let parsedCredits = null;
+
+    if (baseline_cgpa !== null && baseline_cgpa !== undefined && baseline_cgpa !== '') {
+      parsedCgpa = parseFloat(baseline_cgpa);
+      if (isNaN(parsedCgpa) || parsedCgpa < 0 || parsedCgpa > 4.0) {
+        return res.status(400).json({ error: 'Current CGPA must be between 0.00 and 4.00.' });
+      }
+      parsedCredits = (baseline_credits !== null && baseline_credits !== undefined && baseline_credits !== '')
+        ? parseFloat(baseline_credits)
+        : 0;
+      if (isNaN(parsedCredits) || parsedCredits <= 0 || parsedCredits > 200) {
+        return res.status(400).json({ error: 'Completed credits must be greater than 0 and at most 200.' });
+      }
+    }
+
+    const updates = ['baseline_cgpa = ?', 'baseline_credits = ?'];
+    const values = [parsedCgpa, parsedCredits];
+
+    if (target_cgpa !== undefined && target_cgpa !== null && target_cgpa !== '') {
+      const parsedTarget = parseFloat(target_cgpa);
+      if (isNaN(parsedTarget) || parsedTarget < 0 || parsedTarget > 4.0) {
+        return res.status(400).json({ error: 'Target CGPA must be between 0.00 and 4.00.' });
+      }
+      updates.push('target_cgpa = ?');
+      values.push(parsedTarget);
+    }
+
+    values.push(userId);
+    await pool.query(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values);
+
+    return res.json({
+      message: parsedCgpa !== null
+        ? 'Current CGPA updated successfully.'
+        : 'Baseline CGPA cleared; using course grades only.',
+      baseline_cgpa: parsedCgpa,
+      baseline_credits: parsedCredits
+    });
+  } catch (error) {
+    console.error('Update baseline CGPA error:', error);
+    return res.status(500).json({ error: 'Server error updating current CGPA.' });
   }
 });
 
@@ -117,7 +194,11 @@ router.post('/target-predict', authenticateToken, async (req, res) => {
         : 36.0;
       totalPoints = currentCGPA * completedCredits;
     } else {
-      // Get current CGPA and completed credits from DB
+      // Get current CGPA and completed credits from DB (including baseline)
+      const baseline = await getBaselineStats(pool, req.user.id);
+      totalPoints = baseline.points;
+      completedCredits = baseline.credits;
+
       const [courses] = await pool.query(
         'SELECT credits, grade_point FROM courses WHERE user_id = ? AND grade_point IS NOT NULL',
         [req.user.id]
@@ -207,8 +288,9 @@ router.post('/whatif', authenticateToken, async (req, res) => {
       [req.user.id]
     );
 
-    let curPoints = 0;
-    let curCredits = 0;
+    const baseline = await getBaselineStats(pool, req.user.id);
+    let curPoints = baseline.points;
+    let curCredits = baseline.credits;
     existingCourses.forEach(c => {
       const cr = parseFloat(c.credits);
       const gp = parseFloat(c.grade_point);
@@ -265,8 +347,9 @@ router.get('/retake-planner', authenticateToken, async (req, res) => {
       ORDER BY c.grade_point ASC
     `, [req.user.id]);
 
-    let totalPoints = 0;
-    let totalCredits = 0;
+    const baseline = await getBaselineStats(pool, req.user.id);
+    let totalPoints = baseline.points;
+    let totalCredits = baseline.credits;
     courses.forEach(c => {
       const cr = parseFloat(c.credits);
       const gp = parseFloat(c.grade_point);

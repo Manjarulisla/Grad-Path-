@@ -41,8 +41,15 @@ export default function Dashboard({
   const [isAddSemModal, setIsAddSemModal] = useState(false);
   const [isAddCourseModal, setIsAddCourseModal] = useState(false);
   const [isEditCourseModal, setIsEditCourseModal] = useState(false);
+  const [isCgpaModal, setIsCgpaModal] = useState(false);
   const [selectedSemId, setSelectedSemId] = useState(null);
   const [editingCourse, setEditingCourse] = useState(null);
+
+  // Form states for Baseline / Current CGPA Upload
+  const [bCgpa, setBCgpa] = useState('');
+  const [bCredits, setBCredits] = useState('');
+  const [bTargetCgpa, setBTargetCgpa] = useState('3.80');
+  const [savingCgpa, setSavingCgpa] = useState(false);
 
   // Form states for Add Semester
   const [newSemName, setNewSemName] = useState('');
@@ -69,10 +76,72 @@ export default function Dashboard({
     });
   };
 
+  const openCgpaModal = () => {
+    setBCgpa(cgpaData?.baseline_cgpa !== null && cgpaData?.baseline_cgpa !== undefined
+      ? String(cgpaData.baseline_cgpa)
+      : (cgpaData?.cgpa > 0 ? String(cgpaData.cgpa) : ''));
+    setBCredits(cgpaData?.baseline_credits > 0
+      ? String(cgpaData.baseline_credits)
+      : (cgpaData?.completed_credits > 0 ? String(cgpaData.completed_credits) : ''));
+    setBTargetCgpa(cgpaData?.target_cgpa ? String(cgpaData.target_cgpa) : '3.80');
+    setIsCgpaModal(true);
+  };
+
+  const handleSaveBaselineCgpa = async (e) => {
+    e.preventDefault();
+    setSavingCgpa(true);
+    try {
+      await api.updateBaselineCgpa({
+        baseline_cgpa: parseFloat(bCgpa),
+        baseline_credits: parseFloat(bCredits),
+        target_cgpa: bTargetCgpa !== '' ? parseFloat(bTargetCgpa) : undefined
+      });
+      setIsCgpaModal(false);
+      await onRefresh();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setSavingCgpa(false);
+    }
+  };
+
+  const handleClearBaselineCgpa = async () => {
+    setSavingCgpa(true);
+    try {
+      await api.updateBaselineCgpa({
+        baseline_cgpa: null,
+        baseline_credits: null
+      });
+      setIsCgpaModal(false);
+      await onRefresh();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setSavingCgpa(false);
+    }
+  };
+
+  const openAddCourseModal = (semId = null) => {
+    if (!semId && semesters.length === 0) {
+      alert(lang === 'bn' ? 'প্রথমে একটি সেমিস্টার যোগ করুন।' : 'Please add a semester first.');
+      setIsAddSemModal(true);
+      return;
+    }
+    setSelectedSemId(semId || semesters[0]?.id);
+    setCCode('');
+    setCTitle('');
+    setCCredits('3.0');
+    setCMarks('');
+    setCAttendanceHeld('30');
+    setCAttendanceAttended('26');
+    setCDifficulty('3');
+    setIsAddCourseModal(true);
+  };
+
   const handleCreateSemester = async (e) => {
     e.preventDefault();
     if (!newSemName) return;
-    await onAddSemester({ name: newSemName, term_order: parseInt(newSemOrder, 10), is_completed: 0 });
+    await onAddSemester({ name: newSemName, term_order: parseInt(newSemOrder, 10) || 1, is_completed: 0 });
     setNewSemName('');
     setIsAddSemModal(false);
   };
@@ -81,14 +150,14 @@ export default function Dashboard({
     e.preventDefault();
     if (!selectedSemId || !cCode || !cTitle) return;
     await onAddCourse({
-      semester_id: selectedSemId,
+      semester_id: parseInt(selectedSemId, 10),
       code: cCode,
       title: cTitle,
-      credits: parseFloat(cCredits),
+      credits: parseFloat(cCredits) || 3.0,
       marks: cMarks !== '' ? parseFloat(cMarks) : null,
-      attendance_held: parseInt(cAttendanceHeld, 10),
-      attendance_attended: parseInt(cAttendanceAttended, 10),
-      difficulty: parseInt(cDifficulty, 10)
+      attendance_held: cAttendanceHeld !== '' ? parseInt(cAttendanceHeld, 10) : 30,
+      attendance_attended: cAttendanceAttended !== '' ? parseInt(cAttendanceAttended, 10) : 26,
+      difficulty: cDifficulty !== '' ? parseInt(cDifficulty, 10) : 3
     });
     setCCode('');
     setCTitle('');
@@ -271,6 +340,22 @@ export default function Dashboard({
 
         <div className="flex flex-wrap items-center gap-2">
           <button
+            onClick={openCgpaModal}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors border border-indigo-200 dark:border-indigo-800"
+          >
+            <TrendingUp className="w-4 h-4" />
+            <span>{lang === 'bn' ? 'CGPA আপলোড' : 'Set Current CGPA'}</span>
+          </button>
+
+          <button
+            onClick={() => openAddCourseModal()}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700"
+          >
+            <Plus className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+            <span>{t.addCourse}</span>
+          </button>
+
+          <button
             onClick={() => setIsAddSemModal(true)}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700"
           >
@@ -295,8 +380,17 @@ export default function Dashboard({
         <div className="glass-card-hover rounded-3xl p-5 relative overflow-hidden">
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{t.currentCgpa}</span>
-            <div className="p-2 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
-              <Trophy className="w-5 h-5" />
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={openCgpaModal}
+                className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
+                title={lang === 'bn' ? 'CGPA আপলোড/পরিবর্তন করুন' : 'Upload / Edit Current CGPA'}
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+              </button>
+              <div className="p-2 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+                <Trophy className="w-5 h-5" />
+              </div>
             </div>
           </div>
           <div className="flex items-baseline gap-2">
@@ -525,8 +619,7 @@ export default function Dashboard({
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          setSelectedSemId(sem.id);
-                          setIsAddCourseModal(true);
+                          openAddCourseModal(sem.id);
                         }}
                         className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 hover:text-emerald-600 text-xs font-bold transition-colors"
                         title={t.addCourse}
@@ -559,10 +652,7 @@ export default function Dashboard({
                       <div className="p-4 text-center text-xs text-slate-400">
                         {lang === 'bn' ? 'এই সেমিস্টারে কোনো কোর্স নেই।' : 'No courses in this semester yet.'}
                         <button
-                          onClick={() => {
-                            setSelectedSemId(sem.id);
-                            setIsAddCourseModal(true);
-                          }}
+                          onClick={() => openAddCourseModal(sem.id)}
                           className="ml-2 font-bold text-emerald-600 underline"
                         >
                           + {t.addCourse}
@@ -726,6 +816,24 @@ export default function Dashboard({
               {t.addCourse}
             </h3>
             <form onSubmit={handleCreateCourse} className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  {lang === 'bn' ? 'সেমিস্টার নির্বাচন করুন' : 'Select Semester'}
+                </label>
+                <select
+                  required
+                  value={selectedSemId || ''}
+                  onChange={(e) => setSelectedSemId(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  {semesters.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div className="grid grid-cols-3 gap-2">
                 <div className="col-span-1">
                   <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
@@ -953,6 +1061,108 @@ export default function Dashboard({
                 >
                   Update Course
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Upload / Set Current CGPA Modal */}
+      {isCgpaModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="glass-card rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
+            <div>
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                {lang === 'bn' ? 'বর্তমান CGPA আপলোড / সেট করুন' : 'Upload / Set Current CGPA'}
+              </h3>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                {lang === 'bn'
+                  ? 'আগের সেমিস্টারগুলোর মোট CGPA ও সম্পন্ন ক্রেডিট দিন। নতুন কোর্স যোগ করলে স্বয়ংক্রিয়ভাবে হিসাব হবে।'
+                  : 'Enter your existing CGPA and completed credits. Future courses you add will combine with this automatically.'}
+              </p>
+            </div>
+
+            <form onSubmit={handleSaveBaselineCgpa} className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                    {lang === 'bn' ? 'বর্তমান CGPA (0–4.00)' : 'Current CGPA (0–4.00)'}
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="4"
+                    required
+                    placeholder="e.g. 3.45"
+                    value={bCgpa}
+                    onChange={(e) => setBCgpa(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                    {lang === 'bn' ? 'সম্পন্ন ক্রেডিট' : 'Completed Credits'}
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="0.5"
+                    max="200"
+                    required
+                    placeholder="e.g. 45"
+                    value={bCredits}
+                    onChange={(e) => setBCredits(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  {lang === 'bn' ? 'টার্গেট CGPA (ঐচ্ছিক)' : 'Target CGPA (Optional)'}
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="4"
+                  placeholder="e.g. 3.80"
+                  value={bTargetCgpa}
+                  onChange={(e) => setBTargetCgpa(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-between pt-2">
+                {cgpaData?.baseline_cgpa !== null && cgpaData?.baseline_cgpa !== undefined ? (
+                  <button
+                    type="button"
+                    disabled={savingCgpa}
+                    onClick={handleClearBaselineCgpa}
+                    className="px-2.5 py-1.5 rounded-xl text-[11px] font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                  >
+                    {lang === 'bn' ? 'রিসেট করুন' : 'Reset'}
+                  </button>
+                ) : <span />}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsCgpaModal(false)}
+                    className="px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingCgpa}
+                    className="px-4 py-1.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {savingCgpa ? 'Saving...' : (lang === 'bn' ? 'সেভ করুন' : 'Save CGPA')}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
